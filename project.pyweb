@@ -1,0 +1,112 @@
+from js import document, window, Math
+import asyncio
+from pyodide.ffi import create_proxy
+
+canvas = document.createElement("canvas")
+canvas.width = 400
+canvas.height = 600
+document.body.innerHTML = ""
+document.body.appendChild(canvas)
+ctx = canvas.getContext("2d")
+
+game_running = False
+bird_y = 250
+bird_vel = 0
+gravity = 0.5
+flap_strength = -8
+score = 0
+pipes = []
+pipe_gap = 150
+pipe_speed = 2
+pipe_timer = 0
+
+def draw_bird():
+    ctx.fillStyle = "yellow"
+    ctx.beginPath()
+    ctx.arc(80, bird_y, 15, 0, Math.PI * 2)
+    ctx.fill()
+
+def draw_pipe(x, gap_y):
+    ctx.fillStyle = "green"
+    ctx.fillRect(x, 0, 50, gap_y - pipe_gap // 2)
+    ctx.fillRect(x, gap_y + pipe_gap // 2, 50, canvas.height - gap_y)
+
+def draw_score():
+    ctx.fillStyle = "white"
+    ctx.font = "30px sans-serif"
+    ctx.fillText(f"Score: {score}", 10, 40)
+
+def draw_game_over():
+    ctx.fillStyle = "red"
+    ctx.font = "48px sans-serif"
+    ctx.fillText("Game Over", 80, canvas.height // 2)
+    ctx.font = "24px sans-serif"
+    ctx.fillText("Press SPACE to Restart", 60, canvas.height // 2 + 40)
+
+def reset_game():
+    global bird_y, bird_vel, score, pipes, pipe_timer, game_running
+    bird_y = 250
+    bird_vel = 0
+    score = 0
+    pipes = []
+    pipe_timer = 0
+    game_running = True
+    asyncio.ensure_future(game_loop())
+
+def on_key(event):
+    global bird_vel, game_running
+    if event.key == " ":
+        if game_running:
+            bird_vel = flap_strength
+        else:
+            reset_game()
+
+on_key_proxy = create_proxy(on_key)
+window.addEventListener("keydown", on_key_proxy)
+
+async def game_loop():
+    global bird_y, bird_vel, score, pipe_timer, game_running
+
+    while game_running:
+        bird_vel += gravity
+        bird_y += bird_vel
+
+        pipe_timer += 1
+        if pipe_timer > 90:
+            gap_y = Math.random() * (canvas.height - 200) + 100
+            pipes.append({"x": canvas.width, "gap_y": gap_y})
+            pipe_timer = 0
+
+        for pipe in pipes:
+            pipe["x"] -= pipe_speed
+
+        pipes[:] = [p for p in pipes if p["x"] + 50 > 0]
+
+        for pipe in pipes:
+            if 80 + 15 > pipe["x"] and 80 - 15 < pipe["x"] + 50:
+                if bird_y - 15 < pipe["gap_y"] - pipe_gap // 2 or bird_y + 15 > pipe["gap_y"] + pipe_gap // 2:
+                    game_running = False
+
+        if bird_y > canvas.height or bird_y < 0:
+            game_running = False
+
+        for pipe in pipes:
+            if pipe["x"] + 50 < 80 and not pipe.get("scored"):
+                score += 1
+                pipe["scored"] = True
+
+        ctx.fillStyle = "#70c5ce"
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+        for pipe in pipes:
+            draw_pipe(pipe["x"], pipe["gap_y"])
+
+        draw_bird()
+        draw_score()
+
+        if not game_running:
+            draw_game_over()
+
+        await asyncio.sleep(0.016)
+
+reset_game()
